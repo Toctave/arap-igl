@@ -3,12 +3,16 @@
 #include <Eigen/SparseCholesky>
 #include <Eigen/SparseLU>
 
-#include <mutex>
-
 struct Mesh {
-    Eigen::MatrixXd V;
+    Eigen::MatrixXf V;
     Eigen::MatrixXi F;
-    Eigen::MatrixXd N;
+};
+
+enum WeightType {
+    COTANGENT,
+    COTANGENT_CLAMPED,
+    COTANGENT_ABS,
+    MEAN_VALUE,
 };
 
 struct FixedVertex {
@@ -18,30 +22,24 @@ struct FixedVertex {
 
 struct LaplacianSystem {
     Mesh* mesh;
-    bool is_bound;
-    int free_dimension;
-    std::vector<Eigen::Index> swizzle;
-    std::vector<Eigen::Index> deswizzle;
+    Eigen::MatrixXf V0;
+    Eigen::SparseMatrix<float> edge_weights;
+    std::vector<Eigen::Index> fixed_vertex_indices;
+
+    std::vector<Eigen::Matrix3f> optimal_rotations;
+    float rotation_variation_penalty;
     
-    Eigen::MatrixXd V0;
+    Eigen::SparseMatrix<float> laplacian_matrix;
+    Eigen::Matrix<float, Eigen::Dynamic, 3> rhs;
 
-    std::vector<Eigen::Matrix3d> optimal_rotations;
-    double rotation_variation_penalty;
-    Eigen::SparseMatrix<double> laplacian_matrix;
-    Eigen::SparseMatrix<double> fixed_constraint_matrix;
-    Eigen::SparseMatrix<double> cotangent_weights;
-
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
-    Eigen::Matrix<double, Eigen::Dynamic, 3> rhs;
-
-    std::mutex mesh_access;
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<float>> solver;
 
     int iterations;
 };
 
-void system_init(LaplacianSystem& system, Mesh* mesh, double alpha);
-bool system_bind(LaplacianSystem& system, const std::vector<FixedVertex>& fixed_vertices);
+void system_init(LaplacianSystem& system, Mesh* mesh, float alpha);
+bool system_bind(LaplacianSystem& system,
+		 const std::vector<FixedVertex>& fixed_vertices,
+		 WeightType type);
 void system_solve(LaplacianSystem& system, int iterations);
 bool system_iterate(LaplacianSystem& system);
-
-

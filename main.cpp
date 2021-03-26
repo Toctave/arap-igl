@@ -124,15 +124,17 @@ Eigen::Vector3d group_color(size_t g) {
 }
 
 bool load_model(const std::string& model_name, Mesh& mesh) {
+    Eigen::MatrixXd V;
     if (hasEnding(model_name, ".off")) {
-	igl::readOFF(model_name, mesh.V, mesh.F);
+	igl::readOFF(model_name, V, mesh.F);
     } else if (hasEnding(model_name, ".obj")) {
-	igl::readOBJ(model_name, mesh.V, mesh.F);
+	igl::readOBJ(model_name, V, mesh.F);
     } else {
 	return false;
     }
+    mesh.V = V.cast<float>();
 
-    igl::per_vertex_normals(mesh.V, mesh.F, mesh.N);
+    // igl::per_vertex_normals(mesh.V, mesh.F, mesh.N);
 
     return true;
 }
@@ -154,7 +156,7 @@ void benchmark(const std::string& model_name, int iterations) {
     }
 
     system_init(system, &mesh, 0.);
-    if (!system_bind(system, fixed_vertices)) {
+    if (!system_bind(system, fixed_vertices, MEAN_VALUE)) {
 	return;
     }
     
@@ -215,10 +217,10 @@ int main(int argc, char *argv[])
 
     for (size_t i = 0; i < fixed_vertices.size(); i++) {
 	highlighted_colors.row(i) = group_color(fixed_vertices[i].group);
-	highlighted_points.row(i) = mesh.V.row(fixed_vertices[i].index);
+	highlighted_points.row(i) = mesh.V.row(fixed_vertices[i].index).cast<double>();
     }
     
-    system_init(system, &mesh, 0.005);
+    system_init(system, &mesh, 0.0f);
 
     viewer.callback_mouse_move = 
 	[&fixed_vertices, &system, &highlighted_colors, &highlighted_points, &mouse](igl::opengl::glfw::Viewer& viewer, int, int)->bool
@@ -230,11 +232,11 @@ int main(int argc, char *argv[])
 
 		    for (const auto& vertex : fixed_vertices) {
 			if (vertex.group == mouse.selected.group) {
-			    system.mesh->V.row(vertex.index) += mouse_delta.block<3, 1>(0, 0).cast<double>();
+			    system.mesh->V.row(vertex.index) += mouse_delta.block<3, 1>(0, 0);
 			}
 		    }
 
-		    update_group(system.mesh->V, fixed_vertices, highlighted_points);
+		    update_group(system.mesh->V.cast<double>(), fixed_vertices, highlighted_points);
 		    viewer.data().set_points(highlighted_points, highlighted_colors);
 
 		    return true;
@@ -290,15 +292,13 @@ int main(int argc, char *argv[])
 
 		std::cout << iterations_per_second << " iterations per second\n";
 		
-		if (system.mesh_access.try_lock()) {
-		    viewer.data().set_vertices(mesh.V);
+		viewer.data().set_vertices(mesh.V.cast<double>());
 
-		    igl::per_vertex_normals(mesh.V, mesh.F, mesh.N);
-		    viewer.data().set_normals(mesh.N);
-		    
-		    system.mesh_access.unlock();
-		}
+		Eigen::MatrixXd normals;
+		Eigen::MatrixXd Vd = mesh.V.cast<double>();
 		
+		igl::per_vertex_normals(Vd, mesh.F, normals);
+		// viewer.data().set_normals(normals.cast<double>());
 		return false;
 	    };
 
@@ -306,13 +306,13 @@ int main(int argc, char *argv[])
     viewer.core().background_color = Eigen::Vector4f(233,237,238, 255) / 255.0f;
     
     std::cout << argv[1] << " : " << mesh.V.rows() << " vertices.\n";
-    if (!system_bind(system, fixed_vertices)) {
+    if (!system_bind(system, fixed_vertices, MEAN_VALUE)) {
     	std::cerr << "Failed to bind mesh\n" << std::endl;
     	return 1;
     }
 
     viewer.data().set_points(highlighted_points, highlighted_colors);
-    viewer.data().set_mesh(mesh.V, mesh.F);
+    viewer.data().set_mesh(mesh.V.cast<double>(), mesh.F);
     viewer.data().set_colors(colors);
     viewer.data().set_face_based(false);
 
