@@ -1,0 +1,3 @@
+[submodule "tetgen"]
+	path = src/extern/tetgen
+	url = git@github.com:ufz/tetgen.git

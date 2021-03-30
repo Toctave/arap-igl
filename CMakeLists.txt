@@ -11,10 +11,13 @@ option(LIBIGL_USE_STATIC_LIBRARY     "Use static libigl"  ON)
 
 find_package(LIBIGL REQUIRED)
 
-
-# Add your project files
 add_executable(${PROJECT_NAME})
 
+# tetgen
+add_subdirectory(src/extern/tetgen)
+target_include_directories(${PROJECT_NAME} PRIVATE src/extern/tetgen)
+
+# Add your project files
 target_sources(${PROJECT_NAME} PRIVATE
   src/main.cpp
   src/arap.cpp
