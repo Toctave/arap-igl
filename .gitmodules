@@ -1,3 +1,6 @@
 [submodule "tetgen"]
 	path = src/extern/tetgen
 	url = git@github.com:ufz/tetgen.git
+[submodule "implot"]
+	path = src/extern/implot
+	url = git@github.com:epezent/implot.git

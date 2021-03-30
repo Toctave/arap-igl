@@ -22,6 +22,9 @@ target_sources(${PROJECT_NAME} PRIVATE
   src/main.cpp
   src/arap.cpp
   src/Mesh.cpp
+
+  src/extern/implot/implot.cpp
+  src/extern/implot/implot_items.cpp
   )
 
 target_link_libraries(${PROJECT_NAME} igl::core igl::opengl igl::opengl_glfw igl::opengl_glfw_imgui tet)
