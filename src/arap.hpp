@@ -3,16 +3,15 @@
 #include <Eigen/SparseCholesky>
 #include <Eigen/SparseLU>
 
-struct Mesh {
-    Eigen::MatrixXf V;
-    Eigen::MatrixXi F;
-};
+#include "Mesh.hpp"
 
 enum WeightType {
+    UNIFORM,
     COTANGENT,
     COTANGENT_CLAMPED,
     COTANGENT_ABS,
     MEAN_VALUE,
+    WEIGHT_TYPE_MAX,
 };
 
 struct FixedVertex {
@@ -22,9 +21,10 @@ struct FixedVertex {
 
 struct LaplacianSystem {
     Mesh* mesh;
-    Eigen::MatrixXf V0;
+    Points V0;
+    
     Eigen::SparseMatrix<float> edge_weights;
-    std::vector<Eigen::Index> fixed_vertex_indices;
+    std::vector<int> fixed_vertex_indices;
 
     std::vector<Eigen::Matrix3f> optimal_rotations;
     float rotation_variation_penalty;
@@ -35,10 +35,13 @@ struct LaplacianSystem {
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<float>> solver;
 
     int iterations;
+
+    void set_alpha(float alpha);
 };
 
 void system_init(LaplacianSystem& system, Mesh* mesh, float alpha);
 bool system_bind(LaplacianSystem& system,
+		 const Points& V0,
 		 const std::vector<FixedVertex>& fixed_vertices,
 		 WeightType type);
 void system_solve(LaplacianSystem& system, int iterations);

@@ -15,6 +15,32 @@ static float compute_area(const Mesh& mesh) {
     return area / 2.0f;
 }
 
+static Eigen::SparseMatrix<float> uniform_weights(const Mesh& mesh) {
+    Eigen::SparseMatrix<float> weights(mesh.V.rows(), mesh.V.rows());
+    std::vector<Eigen::Triplet<float>> triplets;
+    triplets.reserve(6 * mesh.F.rows());
+
+    for (int fid = 0; fid < mesh.F.rows(); fid++) {
+	Eigen::Vector3i v = mesh.F.row(fid);
+
+	float w = .5f;
+	
+	triplets.emplace_back(v(0), v(1), w);
+	triplets.emplace_back(v(1), v(0), w);
+	    
+	triplets.emplace_back(v(1), v(2), w);
+	triplets.emplace_back(v(2), v(1), w);
+	    
+	triplets.emplace_back(v(2), v(0), w);
+	triplets.emplace_back(v(0), v(2), w);
+    }
+
+    weights.setFromTriplets(triplets.begin(), triplets.end());
+
+
+    return weights;
+}
+
 static Eigen::SparseMatrix<float> cotangent_weights(const Mesh& mesh) {
     Eigen::SparseMatrix<float> weights(mesh.V.rows(), mesh.V.rows());
     std::vector<Eigen::Triplet<float>> triplets;
@@ -59,40 +85,40 @@ static Eigen::SparseMatrix<float> cotangent_weights(const Mesh& mesh) {
     return weights;
 }
 
-// static Eigen::SparseMatrix<float> cotangent_weights_abs(const Mesh& mesh) {
-//     Eigen::SparseMatrix<float> weights(mesh.V.rows(), mesh.V.rows());
-//     std::vector<Eigen::Triplet<float>> triplets;
+static Eigen::SparseMatrix<float> cotangent_weights_abs(const Mesh& mesh) {
+    Eigen::SparseMatrix<float> weights(mesh.V.rows(), mesh.V.rows());
+    std::vector<Eigen::Triplet<float>> triplets;
 
-//     triplets.reserve(mesh.F.rows() * 6);
-//     for (int fid = 0; fid < mesh.F.rows(); fid++) {
-// 	Eigen::Vector3i v = mesh.F.row(fid);
+    triplets.reserve(mesh.F.rows() * 6);
+    for (int fid = 0; fid < mesh.F.rows(); fid++) {
+	Eigen::Vector3i v = mesh.F.row(fid);
 
-// 	Eigen::Matrix<float, 3, 3> edges;
-// 	for (int j = 0; j < 3; j++) {
-// 	    int k = (j + 1) % 3;
+	Eigen::Matrix<float, 3, 3> edges;
+	for (int j = 0; j < 3; j++) {
+	    int k = (j + 1) % 3;
 	    
-// 	    // edge vector between v(j) and v(k)
-// 	    edges.row(j) = mesh.V.row(v(k)) - mesh.V.row(v(j));
-// 	}
+	    // edge vector between v(j) and v(k)
+	    edges.row(j) = mesh.V.row(v(k)) - mesh.V.row(v(j));
+	}
 
-// 	for (int j = 0; j < 3; j++) {
-// 	    int k = (j + 1) % 3;	    
-// 	    int i = (j + 2) % 3;
+	for (int j = 0; j < 3; j++) {
+	    int k = (j + 1) % 3;	    
+	    int i = (j + 2) % 3;
 	    
-// 	    float dot = edges.row(j).dot(edges.row(k));
-// 	    Eigen::Vector3f cross = edges.row(j).cross(edges.row(k));
+	    float dot = edges.row(j).dot(edges.row(k));
+	    Eigen::Vector3f cross = edges.row(j).cross(edges.row(k));
 
-// 	    float abs_cotan = std::abs(dot) / cross.norm();
+	    float abs_cotan = std::abs(dot) / cross.norm();
 
-// 	    triplets.emplace_back(v(i), v(j), abs_cotan);
-// 	    triplets.emplace_back(v(j), v(i), abs_cotan);
-// 	}
-//     }
+	    triplets.emplace_back(v(i), v(j), abs_cotan);
+	    triplets.emplace_back(v(j), v(i), abs_cotan);
+	}
+    }
 
-//     weights.setFromTriplets(triplets.begin(), triplets.end());
+    weights.setFromTriplets(triplets.begin(), triplets.end());
 
-//     return weights;
-// }
+    return weights;
+}
 
 static Eigen::SparseMatrix<float> cotangent_weights_clamped(const Mesh& mesh) {
     Eigen::SparseMatrix<float> weights = cotangent_weights(mesh);
@@ -179,7 +205,7 @@ static Eigen::Matrix3f compute_best_rotation(const LaplacianSystem& system, int 
 	Eigen::Vector3f e0 = system.V0.row(v_idx[0]) - system.V0.row(v_idx[1]);
 
 	cov += it.value() * (e0 * e.transpose() +
-			     system.rotation_variation_penalty * system.optimal_rotations[it.row()].transpose());
+			     4.0f * system.rotation_variation_penalty * system.optimal_rotations[it.row()].transpose());
     }
 
     Eigen::JacobiSVD<Eigen::Matrix3f> svd(cov, Eigen::ComputeFullU | Eigen::ComputeFullV);
@@ -198,11 +224,15 @@ static Eigen::Matrix3f compute_best_rotation(const LaplacianSystem& system, int 
     return rot;
 }
 
+void LaplacianSystem::set_alpha(float alpha) {
+    rotation_variation_penalty = alpha * compute_area(*mesh);
+}
+
 void system_init(LaplacianSystem& system, Mesh* mesh, float alpha) {
     system.mesh = mesh;
     system.iterations = 0;
 
-    system.rotation_variation_penalty = alpha * compute_area(*mesh);
+    system.set_alpha(alpha);
 
     system.optimal_rotations.reserve(mesh->V.rows());
     for (size_t i = 0; i < mesh->V.rows(); i++) {
@@ -221,15 +251,20 @@ void print_sparse(const Eigen::SparseMatrix<float>& mat) {
 }
 
 bool system_bind(LaplacianSystem& system,
+		 const Points& V0,
 		 const std::vector<FixedVertex>& fixed_vertices,
 		 WeightType weights_type) {
-    system.V0 = system.mesh->V;
+    system.V0 = V0;
 
+    system.fixed_vertex_indices.clear();
     for (const auto& fv : fixed_vertices) {
 	system.fixed_vertex_indices.push_back(fv.index);
     }
 
     switch (weights_type) {
+    case UNIFORM:
+    	system.edge_weights = uniform_weights(*system.mesh);
+	break;
     case COTANGENT:
     	system.edge_weights = cotangent_weights(*system.mesh);
 	break;
@@ -237,7 +272,7 @@ bool system_bind(LaplacianSystem& system,
     	system.edge_weights = cotangent_weights_clamped(*system.mesh);
 	break;
     case COTANGENT_ABS:
-    	// system.edge_weights = cotangent_weights_abs(*system.mesh);
+    	system.edge_weights = cotangent_weights_abs(*system.mesh);
 	break;
     case MEAN_VALUE:
 	system.edge_weights = mean_value_weights(*system.mesh);
@@ -317,8 +352,9 @@ bool system_iterate(LaplacianSystem& system) {
 	}
     }
 
-    assert((system.laplacian_matrix * system.mesh->V
-	    - system.rhs).norm() < 1.0e-3f);
+    float error = (system.laplacian_matrix * system.mesh->V
+		   - system.rhs).norm();
+    assert(error < 1.0e-1f);
     
     system.iterations++;
 
