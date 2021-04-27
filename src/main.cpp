@@ -17,7 +17,11 @@
 
 #include <thread>
 
+#include <implot.h>
+
 #include "arap.hpp"
+#include "arap_newton.hpp"
+#include "tao_newton.hpp"
 
 using igl::opengl::glfw::Viewer;
 
@@ -183,7 +187,133 @@ void solve_loop(LaplacianSystem* system) {
     }
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char** argv) {
+    // tao_test_main(argc, argv);
+    // return 0;
+    
+    Mesh mesh;
+    if (!load_model(argv[1], mesh)) {
+	std::cerr << "Could not load model." << std::endl;
+	return 1;
+    }
+
+    Points V0 = mesh.V;
+
+    LaplacianSystem system;
+    system_init(system, &mesh, 0.0f);
+    system_bind(system, V0, {{0, 0}}, COTANGENT);
+    
+    NewtonSolver newton_solver(mesh);
+
+    int iterations = 0;
+    float amp = .0f;
+    float freq = 3.0f;
+    float rot = 0.0f;
+    float trans = 0.0f;
+    bool use_newton = false;
+    bool use_alternating = false;
+    int iterations_per_frame = 1;
+    float twist = 0.0f;
+    int max_iterations = 0;
+
+    Viewer viewer;
+    ImPlot::CreateContext();
+    
+    igl::opengl::glfw::imgui::ImGuiMenu menu;
+    viewer.plugins.push_back(&menu);    
+    
+    viewer.core().is_animating = true;
+    viewer.data().set_mesh(mesh.V.cast<double>(), mesh.F);
+    viewer.data().set_face_based(true);
+
+    viewer.callback_pre_draw =
+	[&](Viewer& viewer) -> bool
+	    {
+		for (int i = 0; i < iterations_per_frame; i++) {
+		    if (max_iterations && iterations >= max_iterations) {
+			break;
+		    }
+		    if (use_alternating) {
+			system_iterate(system);
+			iterations++;
+		    }
+		    if (use_newton) {
+			newton_solver.step();
+			newton_solver.apply(mesh);
+			    
+			iterations++;
+		    }
+		}
+		if (ImGui::Begin("ARAP")) {
+		    bool change = ImGui::SliderFloat("Deformation amplitude", &amp, 0.0f, 1.0f);
+		    change = ImGui::SliderFloat("Deformation frequency", &freq, 0.0f, 10.0f) || change;
+		    change = ImGui::SliderFloat("Rotation", &rot, 0.0f, 1.0f) || change;
+		    change = ImGui::SliderFloat("Translation", &trans, 0.0f, 1.0f) || change;
+		    change = ImGui::SliderFloat("Twist", &twist, 0.0f, 1.0f) || change;
+
+		    change = ImGui::Checkbox("Use newton solver", &use_newton) || change;
+		    change = ImGui::Checkbox("Use alternating solver", &use_alternating) || change;
+		    change = ImGui::SliderInt("Iterations per frame", &iterations_per_frame, 0, 100) || change;
+		    change = ImGui::SliderInt("Max iterations", &max_iterations, 0, 1000) || change;
+		    
+		    if (change) {
+			for (int i = 0; i < mesh.V.rows(); i++) {
+			    float dx = amp * std::sin(2.0f * M_PI * freq * V0(i, 1));
+
+			    float theta = 2.0f * M_PI * rot;
+			    Eigen::Matrix3f rot_mat;
+			    rot_mat <<
+				std::cos(theta), std::sin(theta), 0,
+				-std::sin(theta), std::cos(theta), 0,
+				0, 0, 1;
+
+			    float theta_twist = 2.0f * M_PI * twist * V0(i, 1);
+			    Eigen::Matrix3f rot_mat_twist;
+			    rot_mat_twist <<
+				std::cos(theta_twist), std::sin(theta_twist), 0,
+				-std::sin(theta_twist), std::cos(theta_twist), 0,
+				0, 0, 1;
+
+			    mesh.V.row(i) =
+				((V0.row(i) + Eigen::RowVector3f(dx, 0, 0))
+				 * rot_mat.transpose()
+				 + Eigen::RowVector3f(trans, 0.0f, 0.0f))
+				* rot_mat_twist;
+			    iterations = 0;
+			}
+
+			newton_solver.set_points(mesh);
+		    }
+		    
+		    ImGui::Text(("Iterations : " + std::to_string(iterations)).c_str());
+
+		    ImGui::End();
+		}
+		
+		Eigen::RowVector3f avg = mesh.V.colwise().sum() / mesh.V.rows();
+		mesh.V.rowwise() -= avg;
+		
+		viewer.data().set_vertices(mesh.V.cast<double>());
+		
+		return false;
+	    };
+    
+    menu.callback_draw_viewer_menu =
+	[&]()
+	    {
+		// Draw parent menu content
+		menu.draw_viewer_menu();
+
+		// Add new group
+		return 1;
+	    };    
+    
+
+    viewer.launch();
+    ImPlot::DestroyContext();
+}
+
+int main_(int argc, char *argv[])
 {
     if (argc < 2) {
 	std::cerr << "Usage : ./example <model file> <3 or more fixed indices, separated in groups by commas>\n";
@@ -197,9 +327,11 @@ int main(int argc, char *argv[])
     }
     Eigen::MatrixXf V0 = mesh.V;
 
-    TetraMesh tet(mesh);
+    // TetraMesh tet(mesh);
 
     Viewer viewer;
+    ImPlot::CreateContext();
+    ImPlot::PushColormap(ImPlotColormap_Deep);
 
     struct {
 	FixedVertex selected = {.index = -1};
@@ -231,9 +363,12 @@ int main(int argc, char *argv[])
     
     float alpha = .0f;
     system_init(system, &mesh, alpha);
+    float max_energy_ever = .0f;
+    std::vector<float> energy_history;
+    std::vector<float> iterations_history;
 
     viewer.callback_mouse_move = 
-	[&fixed_vertices, &system, &highlighted_colors, &highlighted_points, &mouse](igl::opengl::glfw::Viewer& viewer, int, int)->bool
+	[&fixed_vertices, &system, &highlighted_colors, &highlighted_points, &mouse, &iterations_history, &energy_history](igl::opengl::glfw::Viewer& viewer, int, int)->bool
 	    {
 		if (mouse.down && mouse.selected.index >= 0) {
 		    Eigen::Vector4f unprojected_mouse = unproject_mouse(viewer, system.mesh->V.row(mouse.selected.index).cast<float>());
@@ -247,6 +382,13 @@ int main(int argc, char *argv[])
 		    }
 		    
 		    system.iterations = 0;
+
+		    // ImPlot::SetNextLineStyle(ImPlot::NextColormapColor());
+		    // energy_history.clear();
+		    energy_history.push_back(0.0f);
+
+		    // iterations_history.clear();
+		    // iterations_history.push_back(0.0f);
 		    
 		    update_group(system.mesh->V.cast<double>(), fixed_vertices, highlighted_points);
 		    viewer.data().set_points(highlighted_points, highlighted_colors);
@@ -302,7 +444,7 @@ int main(int argc, char *argv[])
 	"cotangent_abs",
 	"mean_value",
     };
-    
+
     int iterations = 1;
     viewer.callback_pre_draw =
 	[&](Viewer& viewer) -> bool
@@ -338,6 +480,21 @@ int main(int argc, char *argv[])
 
 		    ImGui::SliderInt("iterations per frame", &iterations, 1, 100);
 		    ImGui::InputInt("Total iterations", &system.iterations);
+
+		    const size_t max_history_steps = 200;
+		    
+		    ImPlot::SetNextPlotLimits(0.0, static_cast<double>(max_history_steps),
+					      0.0, static_cast<double>(max_energy_ever),
+					      ImGuiCond_Always);
+		    if (ImPlot::BeginPlot("ARAP Energy")) {
+			size_t steps = std::min(max_history_steps, energy_history.size());
+			size_t first = energy_history.size() - steps;
+			
+			ImPlot::PlotLine("Total energy", &energy_history[first], steps);
+
+			ImPlot::EndPlot();
+		    }
+		    
 		    ImGui::End();
 		}
 		
@@ -347,6 +504,13 @@ int main(int argc, char *argv[])
 		duration<double> elapsed(t1 - t0);
 		
 		system_solve(system, iterations);
+
+		float energy = system_energy(system);
+		energy_history.push_back(energy);
+		iterations_history.push_back(system.iterations);
+		if (energy > max_energy_ever) {
+		    max_energy_ever = energy;
+		}
 
 		viewer.data().set_vertices(mesh.V.cast<double>());
 
@@ -389,4 +553,5 @@ int main(int argc, char *argv[])
     // std::thread solver_thread(solve_loop, &system);
     
     viewer.launch();
+    ImPlot::DestroyContext();
 }

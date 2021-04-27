@@ -46,3 +46,13 @@ bool system_bind(LaplacianSystem& system,
 		 WeightType type);
 void system_solve(LaplacianSystem& system, int iterations);
 bool system_iterate(LaplacianSystem& system);
+
+float system_energy(const LaplacianSystem& system);
+
+Eigen::SparseMatrix<float> uniform_weights(const Mesh& mesh);
+Eigen::SparseMatrix<float> cotangent_weights(const Mesh& mesh);
+Eigen::SparseMatrix<float> cotangent_weights_abs(const Mesh& mesh);
+Eigen::SparseMatrix<float> cotangent_weights_clamped(const Mesh& mesh);
+Eigen::SparseMatrix<float> mean_value_weights(const Mesh& mesh);
+
+
