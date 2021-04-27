@@ -41,9 +41,29 @@ Eigen::VectorXf NewtonSolver::gradient() const {
     Eigen::SparseMatrix<float> q(n, 3 * n);
     q.setFromTriplets(q_triplets.begin(), q_triplets.end());
     
-    Eigen::VectorXf gradient(n * 3);    
+    Eigen::VectorXf gradient = Eigen::VectorXf::Zero(n * 3);    
     Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> gradient_mat(gradient.data(), 3, n);
     gradient_mat = 2.0f * points_mat * laplacian_matrix_ - rotations_inv.transpose() * q.transpose();
+
+    // // NEW :
+
+    // int n = current_points_.size() / 3;
+    // Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> points_mat(current_points_.data(), 3, n);
+    // Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> rest_points_mat(rest_points_.data(), 3, n);
+
+    // Eigen::VectorXf gradient = Eigen::VectorXf::Zero(n * 3);    
+    // Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> gradient_mat(gradient.data(), 3, n);
+    
+    // for (Eigen::Index j = 0; j < n; j++) {
+    // 	Eigen::Matrix3f rot_j = rotations_.block<3, 3>(3 * j, 0);
+    // 	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
+    // 	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(3 * it.row(), 0);
+    // 	    Eigen::Vector3f dp = points_mat.col(it.row()) - points_mat.col(it.col());
+    // 	    Eigen::Vector3f rest_dp = rest_points_mat.col(it.row()) - points_mat.col(it.col());
+	    
+    // 	    gradient_mat.col(it.row()) -= 2.0f * it.value() * (2.0f * dp - (rot_i + rot_j) * rest_dp);
+    // 	}
+    // }
 
     return gradient;
 }
@@ -77,7 +97,7 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
 	}
 
 	// for (int b = 0; b < 3; b++) {
-	    // hessian_triplets.emplace_back(3 * j + b, 3 * j + b, 1e-6f);
+	// hessian_triplets.emplace_back(3 * j + b, 3 * j + b, 1e-6f);
 	// }
     }
     Eigen::SparseMatrix<float> hessian(3 * n, 3 * n);
@@ -85,23 +105,25 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
     
     std::vector<Eigen::Triplet<float>> points_rot_var_triplets;
     for (int j = 0; j < n; j++) {
+	Eigen::Matrix3f rot_j = rotations_.block<3, 3>(3 * j, 0);
 	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
-	    Eigen::Matrix3f rot = rotations_.block<3, 3>(3 * it.row(), 0);
-	    Eigen::Vector3f rest_dp = rest_points_mat.col(it.row()) - rest_points_mat.col(it.col());
-	    Eigen::Vector3f rotated_rest_dp = rot * rest_dp;
+	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(3 * it.row(), 0);
+	    
+	    Eigen::Vector3f dp = rest_points_mat.col(it.row()) - rest_points_mat.col(it.col());
 
-	    for (int a = 0; a < 3; a++) {
-		Eigen::Vector3f term = 2.0f * it.value() * apply_l(a, rotated_rest_dp);
+	    for (int b = 0; b < 3; b++) {
+		Eigen::Vector3f non_diagonal_term = -2.0f * it.value() * apply_l(b, rot_j * dp);
+		Eigen::Vector3f diagonal_term = -2.0f * it.value() * apply_l(b, rot_i * dp);
 
-		for (int b = 0; b < 3; b++) {
+		for (int a = 0; a < 3; a++) {
 		    points_rot_var_triplets.emplace_back(
 			3 * it.row() + a,
 			3 * it.col() + b,
-			term(b));
+			non_diagonal_term(a));
 		    points_rot_var_triplets.emplace_back(
 			3 * it.row() + a,
-			3 * it.col() + b,
-			-term(b));
+			3 * it.row() + b,
+			diagonal_term(a));
 		}
 	    }
 	}

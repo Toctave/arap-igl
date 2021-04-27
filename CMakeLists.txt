@@ -21,6 +21,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE src/extern/tetgen)
 target_sources(${PROJECT_NAME} PRIVATE
   src/main.cpp
   src/arap.cpp
+  src/arap_newton.cpp
   src/Mesh.cpp
 
   src/extern/implot/implot.cpp
