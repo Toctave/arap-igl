@@ -5,67 +5,87 @@
 #include <Eigen/Dense>
 #include <iostream>
 
-Eigen::VectorXf NewtonSolver::gradient() const {
-    int n = current_points_.size() / 3;
+Eigen::VectorXf NewtonSolver::empirical_gradient() {
+    const float epsilon = 1e-3f;
 
-    Eigen::Matrix<float, Eigen::Dynamic, 3> rotations_inv(rotations_.rows(), 3);
-    for (Eigen::Index i = 0; i < n; i++) {
-	rotations_inv.block<3, 3>(3 * i, 0) = rotations_.block<3, 3>(3 * i, 0).transpose();
+    Eigen::VectorXf gradient = Eigen::VectorXf::Zero(current_points_.size());
+    float f0 = energy();
+
+    for (Eigen::Index i = 0; i < current_points_.size(); i++) {
+	current_points_(i) += epsilon;
+	
+	gradient(i) = (energy() - f0) / epsilon;
+	
+	current_points_(i) -= epsilon;
     }
-    
+
+    return gradient;
+}
+
+Eigen::VectorXf NewtonSolver::gradient() const {
+    cache_rotations();
+
+    int n = current_points_.size() / 3;
     Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> points_mat(current_points_.data(), 3, n);
     Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> rest_points_mat(rest_points_.data(), 3, n);
 
-    std::vector<Eigen::Triplet<float>> q_triplets;
+    Eigen::VectorXf gradient = Eigen::VectorXf::Zero(n * 3);    
+    Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> gradient_mat(gradient.data(), 3, n);
+    
     for (Eigen::Index j = 0; j < n; j++) {
-	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
-	    assert(j == it.col());
-	    Eigen::Vector3f weighted_edge = it.value() * (rest_points_mat.col(it.row()) - rest_points_mat.col(it.col()));
+    	Eigen::Matrix3f rot_j = rotations_.block<3, 3>(3 * j, 0);
+    	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
+    	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(3 * it.row(), 0);
+    	    Eigen::Vector3f dp = points_mat.col(it.row()) - points_mat.col(it.col());
+    	    Eigen::Vector3f rest_dp = rest_points_mat.col(it.row()) - rest_points_mat.col(it.col());
+	    
+    	    gradient_mat.col(it.row()) += 2.0f * it.value() * (2.0f * dp - (rot_i + rot_j) * rest_dp);
+    	}
+    }
 
-	    for (int a = 0; a < 3; a++) {
-		q_triplets.emplace_back(
-		    it.row(),
-		    3 * it.row() + a,
-		    weighted_edge(a));
-	    }
+    return gradient;
+}
 
+Eigen::SparseMatrix<float> NewtonSolver::empirical_hessian() {
+    float epsilon = 1.0e-3f;
+    
+    std::vector<Eigen::Triplet<float>> hessian_triplets;
+    
+    for (int j = 0; j < edge_weights_.rows(); j++) {
+	for (Eigen::SparseMatrix<float>::InnerIterator it(laplacian_matrix_, j); it; ++it) {
 	    for (int a = 0; a < 3; a++) {
-		q_triplets.emplace_back(
-		    it.col(),
-		    3 * it.row() + a,
-		    -weighted_edge(a));
+		for (int b = 0; b < 3; b++) {
+		    int ii = 3 * it.row() + a;
+		    int jj = 3 * it.col() + b;
+		    
+		    float f00 = energy();
+		    
+		    current_points_(ii) += epsilon;
+
+		    float f10 = energy();
+
+		    current_points_(jj) += epsilon;
+		    
+		    float f11 = energy();
+		    
+		    current_points_(ii) -= epsilon;
+
+		    float f01 = energy();
+		    
+		    current_points_(jj) -= epsilon;
+
+		    float estimate = ((f00 - f01) + (f11 - f10)) / (epsilon * epsilon);
+
+		    hessian_triplets.emplace_back(ii, jj, estimate);
+		}
 	    }
 	}
     }
 
-    Eigen::SparseMatrix<float> q(n, 3 * n);
-    q.setFromTriplets(q_triplets.begin(), q_triplets.end());
-    
-    Eigen::VectorXf gradient = Eigen::VectorXf::Zero(n * 3);    
-    Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> gradient_mat(gradient.data(), 3, n);
-    gradient_mat = 2.0f * points_mat * laplacian_matrix_ - rotations_inv.transpose() * q.transpose();
+    Eigen::SparseMatrix<float> hessian(current_points_.size(), current_points_.size());
+    hessian.setFromTriplets(hessian_triplets.begin(), hessian_triplets.end());
 
-    // // NEW :
-
-    // int n = current_points_.size() / 3;
-    // Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> points_mat(current_points_.data(), 3, n);
-    // Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> rest_points_mat(rest_points_.data(), 3, n);
-
-    // Eigen::VectorXf gradient = Eigen::VectorXf::Zero(n * 3);    
-    // Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> gradient_mat(gradient.data(), 3, n);
-    
-    // for (Eigen::Index j = 0; j < n; j++) {
-    // 	Eigen::Matrix3f rot_j = rotations_.block<3, 3>(3 * j, 0);
-    // 	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
-    // 	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(3 * it.row(), 0);
-    // 	    Eigen::Vector3f dp = points_mat.col(it.row()) - points_mat.col(it.col());
-    // 	    Eigen::Vector3f rest_dp = rest_points_mat.col(it.row()) - points_mat.col(it.col());
-	    
-    // 	    gradient_mat.col(it.row()) -= 2.0f * it.value() * (2.0f * dp - (rot_i + rot_j) * rest_dp);
-    // 	}
-    // }
-
-    return gradient;
+    return hessian;
 }
 
 static Eigen::Vector3f apply_l(int a, const Eigen::Vector3f& v) {
@@ -82,6 +102,8 @@ static Eigen::Vector3f apply_l(int a, const Eigen::Vector3f& v) {
 }
 
 Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
+    cache_rotations();
+    
     int n = current_points_.size() / 3;
     
     Eigen::Map<const Eigen::Matrix<float, 3, Eigen::Dynamic>> points_mat(current_points_.data(), 3, n);
@@ -108,7 +130,6 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
 	Eigen::Matrix3f rot_j = rotations_.block<3, 3>(3 * j, 0);
 	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
 	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(3 * it.row(), 0);
-	    
 	    Eigen::Vector3f dp = rest_points_mat.col(it.row()) - rest_points_mat.col(it.col());
 
 	    for (int b = 0; b < 3; b++) {
@@ -116,13 +137,15 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
 		Eigen::Vector3f diagonal_term = -2.0f * it.value() * apply_l(b, rot_i * dp);
 
 		for (int a = 0; a < 3; a++) {
+		    int ii = 3 * it.row() + a;
+		    int jj = 3 * it.col() + b;
 		    points_rot_var_triplets.emplace_back(
-			3 * it.row() + a,
-			3 * it.col() + b,
+			ii,
+			jj,
 			non_diagonal_term(a));
 		    points_rot_var_triplets.emplace_back(
-			3 * it.row() + a,
-			3 * it.row() + b,
+			ii,
+			jj,
 			diagonal_term(a));
 		}
 	    }
@@ -164,13 +187,13 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
     Eigen::SparseMatrix<float> rot_rot_var_inv(3 * n, 3 * n);
     rot_rot_var_inv.setFromTriplets(rot_rot_var_inv_triplets.begin(), rot_rot_var_inv_triplets.end());
 
-    Eigen::SparseMatrix<float> second_term = points_rot_var.transpose() * rot_rot_var_inv * points_rot_var;
+    Eigen::SparseMatrix<float> second_term = points_rot_var * rot_rot_var_inv * points_rot_var.transpose();
     // std::cout << "Second term norm : " << second_term.norm() << "\n";
     // std::cout << "rot rot var inv norm : " << rot_rot_var_inv.norm() << "\n";
     // std::cout << "points rot var norm : " << points_rot_var.norm() << "\n";
     
-    // hessian -= second_term;
-    hessian -= rot_rot_var_inv;
+    hessian -= second_term;
+    // hessian -= rot_rot_var_inv;
 
     return hessian;
 }
@@ -200,6 +223,7 @@ NewtonSolver::NewtonSolver(const Mesh& mesh) :
     current_points_(rest_points_),
     edge_weights_(mean_value_weights(mesh)),
     laplacian_matrix_(compute_laplacian_matrix(edge_weights_)),
+    rotations_cached_(false),
     step_size_(0.5f)
 {
 }
@@ -244,6 +268,8 @@ compute_best_rotations(const Eigen::VectorXf& points,
 }
 
 float NewtonSolver::energy() const {
+    cache_rotations();
+    
     float e = 0.0f;
     int n = current_points_.size() / 3;
     
@@ -265,44 +291,32 @@ float NewtonSolver::energy() const {
     return e;
 }
 
-Eigen::VectorXf compute_empirical_gradient(const NewtonSolver& solver,
-					   const Eigen::VectorXf& points,
-					   const Eigen::Matrix<float, Eigen::Dynamic, 3>& rotations) {
-    const float epsilon = 1e-4f;
-
-    Eigen::VectorXf gradient = Eigen::VectorXf::Zero  (points.size());
-    float f0 = solver.energy();
-
-    for (Eigen::Index i = 0; i < points.size(); i++) {
-	Eigen::VectorXf other = points;
-	other(i) += epsilon;
-
-	gradient(i) = (solver.energy() - f0) / epsilon;
-    }
-
-    return gradient;
-}
-
 void NewtonSolver::set_points(const Eigen::VectorXf& points) {
     current_points_ = points;
+    rotations_cached_ = false;
 }
 
 void NewtonSolver::set_points(const Mesh& mesh) {
     set_points(Eigen::Map<const Eigen::VectorXf>(mesh.V.data(), mesh.V.size()));
 }
 
+void NewtonSolver::cache_rotations() const {
+    if (!rotations_cached_) {
+	rotations_ =
+	    compute_best_rotations(current_points_, rest_points_, edge_weights_);
+	rotations_cached_ = true;
+    }
+}
+
 void NewtonSolver::step() {
-    rotations_ =
-	compute_best_rotations(current_points_, rest_points_, edge_weights_);
+    Eigen::VectorXf gradient = this->gradient();
+    Eigen::SparseMatrix<float> hessian = this->hessian();
 
     float not_identity = 0.0f;
     for (int i = 0; i < rest_points_.size() / 3; i++) {
 	not_identity = std::max(not_identity, (rotations_.block<3, 3>(3 * i, 0) - Eigen::Matrix3f::Identity()).norm());
     }
     // std::cout << "Not identity : " << not_identity << "\n";
-
-    Eigen::VectorXf gradient = this->gradient();
-    Eigen::SparseMatrix<float> hessian = this->hessian();
 
     // std::cout << "gradient : " << gradient << "\n\n";
     // std::cout << "hessian norm : " << hessian.norm() << "\n\n\n";
@@ -332,6 +346,7 @@ void NewtonSolver::step() {
     
     ImGui::SliderFloat("Step size", &step_size_, 0.0f, 3.0f);
     current_points_ -= step_size_ * delta;
+    rotations_cached_ = false;
 
     // std::cout << "delta :\n" << delta << "\n";
     // std::cout << "current (after) :\n" << current_points_ << "\n";

@@ -10,10 +10,12 @@ private:
     
     Eigen::VectorXf current_points_;
 
-    Eigen::Matrix<float, Eigen::Dynamic, 3> rotations_;
-    float step_size_;
+    mutable Eigen::Matrix<float, Eigen::Dynamic, 3> rotations_;
+    mutable bool rotations_cached_;
 
-    // void compute_best_rotations();
+    float step_size_;
+    
+    void cache_rotations() const;
 
 public:
     NewtonSolver(const Mesh& mesh);
@@ -27,8 +29,13 @@ public:
     void solve();
     
     float energy() const;
+    
+    Eigen::VectorXf empirical_gradient();
     Eigen::VectorXf gradient() const;
+    
     Eigen::SparseMatrix<float> hessian() const;
+    Eigen::SparseMatrix<float> empirical_hessian();
+    
     
     // float trust_radius;
     // float max_trust_radius;
