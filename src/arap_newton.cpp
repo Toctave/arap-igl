@@ -155,15 +155,16 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
     points_rot_var.setFromTriplets(points_rot_var_triplets.begin(), points_rot_var_triplets.end());
 
     std::vector<Eigen::Triplet<float>> rot_rot_var_inv_triplets;    
-    for (int j = 0; j < n; j++) {
-	Eigen::Matrix3f rot = rotations_.block<3, 3>(3 * j, 0);
+    for (int i = 0; i < n; i++) {
 	Eigen::Matrix3f block = Eigen::Matrix3f::Zero();
-	    
-	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, j); it; ++it) {
-	    Eigen::Vector3f dp = points_mat.col(it.col()) - points_mat.col(it.row());
-	    Eigen::Vector3f rest_dp = rest_points_mat.col(it.col()) - rest_points_mat.col(it.row());
-	    Eigen::Vector3f rotated_rest_dp = rot * rest_dp;
-	    
+	for (Eigen::SparseMatrix<float>::InnerIterator it(edge_weights_, i); it; ++it) {
+	    int j = it.row();
+	    Eigen::Matrix3f rot_i = rotations_.block<3, 3>(i * 3, 0);
+
+	    Eigen::Vector3f dp = points_mat.col(i) - points_mat.col(j);
+	    Eigen::Vector3f rest_dp = rest_points_mat.col(i) - rest_points_mat.col(j);
+	    Eigen::Vector3f rotated_rest_dp = rot_i * rest_dp;
+
 	    for (int a = 0; a < 3; a++) {
 		for (int b = 0; b < 3; b++) {
 		    block(a, b) +=
@@ -172,17 +173,16 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
 	    }
 	}
 
-	Eigen::Matrix3f block_inv =
-	    block.inverse();
-	
+	Eigen::Matrix3f block_inverse = block.inverse();
 	for (int a = 0; a < 3; a++) {
 	    for (int b = 0; b < 3; b++) {
-		rot_rot_var_inv_triplets.emplace_back(
-		    3 * j + a,
-		    3 * j + b,
-		    block_inv(a, b));
+		int ii = 3 * i + a;
+		int jj = 3 * i + b;
+
+		rot_rot_var_inv_triplets.emplace_back(ii, jj, block_inverse(a, b));
 	    }
 	}
+
     }
     Eigen::SparseMatrix<float> rot_rot_var_inv(3 * n, 3 * n);
     rot_rot_var_inv.setFromTriplets(rot_rot_var_inv_triplets.begin(), rot_rot_var_inv_triplets.end());
@@ -310,7 +310,7 @@ void NewtonSolver::cache_rotations() const {
 
 void NewtonSolver::step() {
     Eigen::VectorXf gradient = this->gradient();
-    Eigen::SparseMatrix<float> hessian = this->hessian();
+    Eigen::SparseMatrix<float> hessian = this->empirical_hessian();
 
     float not_identity = 0.0f;
     for (int i = 0; i < rest_points_.size() / 3; i++) {
@@ -329,7 +329,7 @@ void NewtonSolver::step() {
 
     float min_lambda = solver.vectorD().minCoeff();
     if (min_lambda < -1e-5f) {
-	std::cerr << "Hessian is not positive\n";
+	std::cerr << "Hessian is not positive, min eigenvalue = " << min_lambda << "\n";
     }
 
     // std::cout << "min lambda : " << min_lambda << "\n";
