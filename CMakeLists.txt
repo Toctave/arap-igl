@@ -17,18 +17,32 @@ add_executable(${PROJECT_NAME})
 add_subdirectory(src/extern/tetgen)
 target_include_directories(${PROJECT_NAME} PRIVATE src/extern/tetgen)
 
-# Add your project files
+# implot
 target_sources(${PROJECT_NAME} PRIVATE
-  src/main.cpp
-  src/arap.cpp
-  src/arap_newton.cpp
-  src/Mesh.cpp
-
   src/extern/implot/implot.cpp
   src/extern/implot/implot_items.cpp
   )
+target_include_directories(${PROJECT_NAME} PRIVATE src/extern/implot)
 
-target_link_libraries(${PROJECT_NAME} igl::core igl::opengl igl::opengl_glfw igl::opengl_glfw_imgui tet)
+# TAO
+target_include_directories(${PROJECT_NAME} PRIVATE ../petsc/include ../petsc/arch-linux-c-debug/include)
+target_link_directories(${PROJECT_NAME} PRIVATE ../petsc/arch-linux-c-debug/lib)
+target_link_libraries(${PROJECT_NAME} PRIVATE petsc)
+
+# project files
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+  EIGEN_INITIALIZE_MATRICES_BY_NAN
+  EIGEN_NO_AUTOMATIC_RESIZING)
+target_sources(${PROJECT_NAME} PRIVATE
+  src/main.cpp
+  src/Mesh.cpp
+  src/arap_util.cpp
+  src/arap_model.cpp
+  src/newton_solver.cpp
+  src/tao_solver.cpp
+  )
+
+target_link_libraries(${PROJECT_NAME} PRIVATE igl::core igl::opengl igl::opengl_glfw igl::opengl_glfw_imgui tet)
 
 add_compile_definitions(EIGEN_INITIALIZE_MATRICES_BY_NAN)
 target_include_directories(${PROJECT_NAME} PRIVATE external/ tetgen/)
