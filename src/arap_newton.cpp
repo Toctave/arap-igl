@@ -187,14 +187,15 @@ Eigen::SparseMatrix<float> NewtonSolver::hessian() const {
     Eigen::SparseMatrix<float> rot_rot_var_inv(3 * n, 3 * n);
     rot_rot_var_inv.setFromTriplets(rot_rot_var_inv_triplets.begin(), rot_rot_var_inv_triplets.end());
 
-    Eigen::SparseMatrix<float> second_term = points_rot_var * rot_rot_var_inv * points_rot_var.transpose();
     // std::cout << "Second term norm : " << second_term.norm() << "\n";
     // std::cout << "rot rot var inv norm : " << rot_rot_var_inv.norm() << "\n";
     // std::cout << "points rot var norm : " << points_rot_var.norm() << "\n";
     
-    hessian -= second_term;
-    // hessian -= rot_rot_var_inv;
-
+    hessian -= rot_rot_var_inv;
+    
+    Eigen::SparseMatrix<float> hessian_t = hessian.transpose();
+    ImGui::Text("hessian non-symmetry : %f", (hessian - hessian_t).norm());
+    
     return hessian;
 }
 
@@ -310,7 +311,7 @@ void NewtonSolver::cache_rotations() const {
 
 void NewtonSolver::step() {
     Eigen::VectorXf gradient = this->gradient();
-    Eigen::SparseMatrix<float> hessian = this->empirical_hessian();
+    Eigen::SparseMatrix<float> hessian = this->hessian();
 
     float not_identity = 0.0f;
     for (int i = 0; i < rest_points_.size() / 3; i++) {
@@ -328,9 +329,7 @@ void NewtonSolver::step() {
     }
 
     float min_lambda = solver.vectorD().minCoeff();
-    if (min_lambda < -1e-5f) {
-	std::cerr << "Hessian is not positive, min eigenvalue = " << min_lambda << "\n";
-    }
+    ImGui::Text("Hessian min eigenvalue : %f", min_lambda);
 
     // std::cout << "min lambda : " << min_lambda << "\n";
 
@@ -347,17 +346,37 @@ void NewtonSolver::step() {
     ImGui::SliderFloat("Step size", &step_size_, 0.0f, 3.0f);
     current_points_ -= step_size_ * delta;
     rotations_cached_ = false;
+}
 
-    // std::cout << "delta :\n" << delta << "\n";
-    // std::cout << "current (after) :\n" << current_points_ << "\n";
+template<typename T>
+Eigen::VectorXf newton_step(const T& model, const Eigen::VectorXf& current_points) {
+    Eigen::VectorXf gradient = model.gradient(current_points);
+    Eigen::SparseMatrix<float> hessian = model.hessian(current_points);
 
-    float change = delta.cwiseAbs().maxCoeff();
-    float energy = this->energy();
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<float>> solver(hessian);
 
-    ImGui::Text(("energy : " + std::to_string(energy)).c_str());
-    ImGui::Text(("change : " + std::to_string(change)).c_str());
+    if (solver.info() != Eigen::Success) {
+	throw std::runtime_error("Could not factorize Newton hessian");
+    }
+    
+    Eigen::VectorXf delta =
+	solver.solve(gradient);
+
+    if (solver.info() != Eigen::Success) {
+	throw std::runtime_error("Could not invert Newton hessian");
+    }
+    
+    return current_points + delta;
 }
 
 void NewtonSolver::apply(Mesh& mesh) const {
     mesh.V = Eigen::Map<const Points>(current_points_.data(), mesh.V.rows(), 3);
+}
+
+int NewtonSolver::ndof() const {
+    return current_points_.size();
+}
+
+const Eigen::VectorXf& NewtonSolver::current_points() const {
+    return current_points_;
 }

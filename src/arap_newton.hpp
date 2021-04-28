@@ -35,7 +35,9 @@ public:
     
     Eigen::SparseMatrix<float> hessian() const;
     Eigen::SparseMatrix<float> empirical_hessian();
-    
+
+    int ndof() const;
+    const Eigen::VectorXf& current_points() const;
     
     // float trust_radius;
     // float max_trust_radius;

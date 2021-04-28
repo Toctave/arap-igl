@@ -188,8 +188,7 @@ void solve_loop(LaplacianSystem* system) {
 }
 
 int main(int argc, char** argv) {
-    // tao_test_main(argc, argv);
-    // return 0;
+    Tao tao = tao_init();
     
     Mesh mesh;
     if (!load_model(argv[1], mesh)) {
@@ -254,7 +253,7 @@ int main(int argc, char** argv) {
 		    change = ImGui::Checkbox("Use newton solver", &use_newton) || change;
 		    change = ImGui::Checkbox("Use alternating solver", &use_alternating) || change;
 		    change = ImGui::SliderInt("Iterations per frame", &iterations_per_frame, 0, 100) || change;
-		    change = ImGui::SliderInt("Max iterations", &max_iterations, 0, 1000) || change;
+		    change = ImGui::SliderInt("Max iterations", &max_iterations, 0, 100) || change;
 		    
 		    if (change) {
 			for (int i = 0; i < mesh.V.rows(); i++) {
@@ -284,8 +283,21 @@ int main(int argc, char** argv) {
 
 			newton_solver.set_points(mesh);
 		    }
+
+		    if (ImGui::Button("TAO solve")) {
+			tao_solve_newton(tao, newton_solver);
+			newton_solver.apply(mesh);
+		    }
 		    
-		    ImGui::Text(("Iterations : " + std::to_string(iterations)).c_str());
+		    ImGui::Text("Iterations : %d", iterations);
+		    ImGui::Text("Energy : %f", newton_solver.energy());
+		    ImGui::Text("Gradient norm : %f", newton_solver.gradient().norm());
+		    ImGui::Text("Relative empirical gradient error : %f",
+				(newton_solver.gradient() - newton_solver.empirical_gradient()).norm() / newton_solver.gradient().norm());
+		    Eigen::SparseMatrix<float> hessian = newton_solver.hessian();
+		    float hessian_norm = hessian.norm();
+		    ImGui::Text("Hessian norm : %f", hessian_norm);
+
 
 		    ImGui::End();
 		}
@@ -311,6 +323,8 @@ int main(int argc, char** argv) {
 
     viewer.launch();
     ImPlot::DestroyContext();
+
+    tao_finalize(tao);
 }
 
 int main_(int argc, char *argv[])
