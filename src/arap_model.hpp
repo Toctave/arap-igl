@@ -17,8 +17,12 @@ public:
     virtual void set_query_point(const Eigen::VectorXf& x) override;
     
     virtual float energy() const override;
+    
     virtual Eigen::VectorXf gradient() const override;
+    Eigen::VectorXf empirical_gradient() const;
+    
     virtual Eigen::SparseMatrix<float> hessian() const override;
+    Eigen::SparseMatrix<float> empirical_hessian() const;
 
     virtual int degrees_of_freedom() const;
 };

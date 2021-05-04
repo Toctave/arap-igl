@@ -15,20 +15,15 @@ struct Mesh {
     Indices<3> F;
 };
 
-class TetraMesh {
-private:
-    Points points_;
-    Indices<4> indices_;
-    Indices<4> neighbors_;
+struct TetraMesh {
+    Points points;
+    Indices<4> indices;
+    Indices<4> neighbors;
 
-    size_t surface_points_;
+    size_t surface_points;
 
-public:
     TetraMesh(const Mesh& mesh);
-
-    const Points& points();
-    PointsBlock surface_points();
-    ConstPointsBlock surface_points() const;
+    Eigen::Ref<const Eigen::Vector3f> point(int tet, int index) const;
 };
 
 

@@ -71,6 +71,7 @@ static PetscErrorCode tao_hessian_callback(Tao tao, Vec x, Mat hessian, Mat prec
 TaoSolver::TaoSolver() {
     TaoCreate(PETSC_COMM_SELF, &tao_);
     TaoSetType(tao_, TAONTR);
+    // TaoSetTolerances(tao_, 0.0f, 1e-6f, 0.0f);
 }
 
 TaoSolver::~TaoSolver() {
@@ -79,12 +80,9 @@ TaoSolver::~TaoSolver() {
     TaoDestroy(&tao_);
 }
 
-
-void TaoSolver::improve(EnergyModel& model, Eigen::VectorXf& guess) {
-    throw std::runtime_error("TaoSolver does not implement iterative improvements");
-}
-
-void TaoSolver::solve(EnergyModel& model, Eigen::VectorXf& guess) {
+void TaoSolver::internal_solve(int max_iterations,
+                               EnergyModel &model,
+                               Eigen::VectorXf &guess) {
     int ndof = model.degrees_of_freedom();
     
     VecCreateSeq(PETSC_COMM_SELF, ndof, &tao_points_); 
@@ -99,11 +97,26 @@ void TaoSolver::solve(EnergyModel& model, Eigen::VectorXf& guess) {
     TaoSetObjectiveAndGradientRoutine(tao_, tao_energy_gradient_callback, reinterpret_cast<void*>(&cb_data)); 
     TaoSetHessianRoutine(tao_, tao_hessian_, tao_hessian_, tao_hessian_callback, reinterpret_cast<void*>(&cb_data)); 
 
+    TaoSetMaximumIterations(tao_, max_iterations);
+    // TaoSetMaximumFunctionEvaluations(tao_, max_iterations);
+    
     TaoSolve(tao_);
 
+    TaoConvergedReason reason;
+    TaoGetConvergedReason(tao_, &reason);
+
+    std::cout << "Tao reason : " << TaoConvergedReasons[reason] << "\n";
+    
     guess = tao_to_eigen(tao_points_);
 
     VecDestroy(&tao_points_); 
     MatDestroy(&tao_hessian_);
+}
 
+void TaoSolver::improve(EnergyModel& model, Eigen::VectorXf& guess) {
+    internal_solve(10, model, guess);
+}
+
+void TaoSolver::solve(EnergyModel& model, Eigen::VectorXf& guess) {
+    internal_solve(INT_MAX, model, guess);
 }

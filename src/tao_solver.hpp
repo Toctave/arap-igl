@@ -18,4 +18,5 @@ public:
     
     void improve(EnergyModel& model, Eigen::VectorXf& guess);
     void solve(EnergyModel& model, Eigen::VectorXf& guess);
+    void internal_solve(int max_iterations, EnergyModel& model, Eigen::VectorXf& guess);
 };

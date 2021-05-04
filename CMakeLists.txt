@@ -39,7 +39,9 @@ target_sources(${PROJECT_NAME} PRIVATE
   src/arap_util.cpp
   src/arap_model.cpp
   src/newton_solver.cpp
+  src/gradient_descent_solver.cpp
   src/tao_solver.cpp
+  src/volume_arap_model.cpp
   )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE igl::core igl::opengl igl::opengl_glfw igl::opengl_glfw_imgui tet)
