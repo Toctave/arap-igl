@@ -2,6 +2,8 @@
 
 #include "tao_solver.hpp"
 
+#include <imgui/imgui.h>
+
 static void eigen_to_tao(float* tao, float eigen) {
     *tao = eigen;
 }
@@ -22,9 +24,9 @@ static void eigen_to_tao(Mat tao, const Eigen::SparseMatrix<float>& eigen) {
     MatSetOption(tao, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
     
     for (int j = 0; j < eigen.cols(); j++) {
-	for (Eigen::SparseMatrix<float>::InnerIterator it(eigen, j); it; ++it) {
-	    MatSetValue(tao, it.row(), it.col(), it.value(), INSERT_VALUES);
-	}
+        for (Eigen::SparseMatrix<float>::InnerIterator it(eigen, j); it; ++it) {
+            MatSetValue(tao, it.row(), it.col(), it.value(), INSERT_VALUES);
+        }
     }
 
     MatAssemblyBegin(tao, MAT_FINAL_ASSEMBLY);
@@ -86,7 +88,7 @@ void TaoSolver::internal_solve(int max_iterations,
     int ndof = model.degrees_of_freedom();
     
     VecCreateSeq(PETSC_COMM_SELF, ndof, &tao_points_); 
-    MatCreateSeqBAIJ(PETSC_COMM_SELF, 1, ndof, ndof, 1, nullptr, &tao_hessian_); 
+    MatCreateSeqAIJ(PETSC_COMM_SELF, ndof, ndof, 300, nullptr, &tao_hessian_); 
 
     eigen_to_tao(tao_points_, guess);
     TaoSetInitialVector(tao_, tao_points_);
@@ -105,7 +107,7 @@ void TaoSolver::internal_solve(int max_iterations,
     TaoConvergedReason reason;
     TaoGetConvergedReason(tao_, &reason);
 
-    std::cout << "Tao reason : " << TaoConvergedReasons[reason] << "\n";
+    ImGui::Text("Tao reason : %s", TaoConvergedReasons[reason]);
     
     guess = tao_to_eigen(tao_points_);
 
@@ -114,7 +116,7 @@ void TaoSolver::internal_solve(int max_iterations,
 }
 
 void TaoSolver::improve(EnergyModel& model, Eigen::VectorXf& guess) {
-    internal_solve(10, model, guess);
+    internal_solve(50, model, guess);
 }
 
 void TaoSolver::solve(EnergyModel& model, Eigen::VectorXf& guess) {

@@ -76,6 +76,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    float mesh_scale = mesh.V.maxCoeff() - mesh.V.minCoeff();
+    mesh.V /= mesh_scale;
+
     Points V0 = mesh.V;
 
     TetraMesh tetra_mesh(mesh);
@@ -97,6 +100,8 @@ int main(int argc, char** argv) {
     int iterations_per_frame = 1;
     float twist = 0.0f;
     int max_iterations = 0;
+
+    float scale = 1.0f;
 
     int tet = 0;
     bool view_tet = false;
@@ -135,8 +140,12 @@ int main(int argc, char** argv) {
                 }
             }
             if (ImGui::Begin("dbg")) {
-                ImGui::SliderInt("tet", &tet, 0, tetra_mesh.indices.rows() - 1);
-                ImGui::Checkbox("View tet", &view_tet);
+                if (ImGui::Checkbox("View tet", &view_tet)) {
+                    viewer.data().clear();
+                }
+                if (view_tet) {
+                    ImGui::SliderInt("tet", &tet, 0, tetra_mesh.indices.rows() - 1);
+                }
 
                 ImGui::End();
             }
@@ -147,6 +156,7 @@ int main(int argc, char** argv) {
                 change = ImGui::SliderFloat("Rotation", &rot, 0.0f, 1.0f) || change;
                 change = ImGui::SliderFloat("Translation", &trans, 0.0f, 1.0f) || change;
                 change = ImGui::SliderFloat("Twist", &twist, 0.0f, 1.0f) || change;
+                change = ImGui::SliderFloat("Scale", &scale, -2.0f, 2.0f) || change;
 
                 change = ImGui::Checkbox("Use newton solver", &use_newton) || change;
                 change = ImGui::Checkbox("Use alternating solver", &use_alternating) || change;
@@ -175,7 +185,7 @@ int main(int argc, char** argv) {
                             ((V0.row(i) + Eigen::RowVector3f(dx, 0, 0))
                              * rot_mat.transpose()
                              + Eigen::RowVector3f(trans, 0.0f, 0.0f))
-                            * rot_mat_twist;
+                            * rot_mat_twist * scale;
                         iterations = 0;
                     }
 
@@ -225,13 +235,12 @@ int main(int argc, char** argv) {
                     tet_points.row(i) = tetra_mesh.points.row(tetra_mesh.indices(tet, i));
                 }
 
-                viewer.data().clear();
                 viewer.data().set_mesh(tet_points.cast<double>(), tet_faces);
             } else {
                 Eigen::RowVector3f avg = mesh.V.colwise().sum() / mesh.V.rows();
                 mesh.V.rowwise() -= avg;
 		
-                viewer.data().set_vertices(mesh.V.cast<double>());
+                viewer.data().set_mesh(mesh.V.cast<double>(), mesh.F);
             }
 
             return false;

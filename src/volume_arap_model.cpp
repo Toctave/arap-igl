@@ -5,8 +5,6 @@
 
 #include <iostream>
 
-// #define edge_weight(i, j) edge_weights_(tet, edge_index(i, j))
-
 Eigen::Ref<Eigen::Matrix3f> VolumeARAPModel::curl(Eigen::Index tet, int idx) {
     return curls_.block<3, 3>(0, (4 * tet + idx) * 3);
 }
@@ -112,30 +110,30 @@ VolumeARAPModel::VolumeARAPModel(const TetraMesh& mesh, float alpha, float beta)
             }
         }
 
-        // todo : clean this up
+        // todo : turn this into a tidy loop ?
         Eigen::Vector3f p01 = p(tet, 1) - p(tet, 0);
         Eigen::Vector3f p02 = p(tet, 2) - p(tet, 0);
         Eigen::Vector3f p03 = p(tet, 3) - p(tet, 0);
-        Eigen::Vector3f p12 = p(tet, 2) - p(tet, 1);
+        Eigen::Vector3f p21 = p(tet, 1) - p(tet, 2);
         Eigen::Vector3f p13 = p(tet, 3) - p(tet, 1);
-        Eigen::Vector3f p23 = p(tet, 3) - p(tet, 2);
+        Eigen::Vector3f p32 = p(tet, 2) - p(tet, 3);
 
         curl(tet, 0) =
-            p01 * p23.transpose()
+            p01 * p32.transpose()
             + p02 * p13.transpose()
-            + p03 * p12.transpose();
+            + p03 * p21.transpose();
         curl(tet, 1) =
-            p01 * p23.transpose()
-            + p12 * p03.transpose()
+            p01 * p32.transpose()
+            + p21 * p03.transpose()
             + p13 * p02.transpose();
         curl(tet, 2) =
             p02 * p13.transpose()
-            + p12 * p03.transpose()
-            + p23 * p01.transpose();
+            + p21 * p03.transpose()
+            + p32 * p01.transpose();
         curl(tet, 3) =
-            p03 * p12.transpose()
+            p03 * p21.transpose()
             + p13 * p02.transpose()
-            + p23 * p01.transpose();
+            + p32 * p01.transpose();
     }
 }
 
@@ -245,10 +243,11 @@ Eigen::Matrix3f VolumeARAPModel::hessian_first_part(Eigen::Index tet, int i, int
 
 Eigen::Matrix3f VolumeARAPModel::hessian_second_part(Eigen::Index tet, int i, int j) const {
     Eigen::Matrix3f rotated_curl_i =
-        rotation(tet) * curl(tet, i);
+        rotation(tet).transpose() * curl(tet, i);
     Eigen::Matrix3f rotated_curl_j =
-        rotation(tet) * curl(tet, j);
-    
+        rotation(tet).transpose() * curl(tet, j);
+
+    // todo : precompute w
     Eigen::Matrix3f w = (rotation_y(tet).trace() * Eigen::Matrix3f::Identity()
                          - rotation_y(tet)).inverse();
 
