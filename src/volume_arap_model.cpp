@@ -84,11 +84,6 @@ VolumeARAPModel::VolumeARAPModel(const TetraMesh& mesh, float alpha, float beta)
             (p(tet, 1) - p(tet, 0)).dot((p(tet, 2) - p(tet, 0)).cross(p(tet, 3) - p(tet, 0))) / 6.0f;
         assert(volumes_(tet) > 0.0f);
 
-        assert(-(p(tet, 2) - p(tet, 1)).dot((p(tet, 3) - p(tet, 1)).cross(p(tet, 0) - p(tet, 1))) > 0.0f);
-        assert((p(tet, 3) - p(tet, 2)).dot((p(tet, 0) - p(tet, 2)).cross(p(tet, 1) - p(tet, 2))) > 0.0f);
-        assert(-(p(tet, 0) - p(tet, 3)).dot((p(tet, 1) - p(tet, 3)).cross(p(tet, 2) - p(tet, 3))) > 0.0f);
-
-
         // volume gradient w.r.t. vertices
         for (int i = 0; i < 4; i++) {
             int j = (i + 1) % 4;
@@ -158,6 +153,7 @@ void VolumeARAPModel::set_query_point(const Eigen::VectorXf& x) {
         assert((df * (p(tet, 2) - p(tet, 0)) - (q(tet, 2) - q(tet, 0))).norm() < 1.0e-3f);
         assert((df * (p(tet, 3) - p(tet, 0)) - (q(tet, 3) - q(tet, 0))).norm() < 1.0e-3f);
 
+        // todo : use Newton's method for polar decomposition
         Eigen::JacobiSVD<Eigen::Matrix3f> svd_solver(df, Eigen::ComputeFullU | Eigen::ComputeFullV);
         Eigen::Matrix3f u = svd_solver.matrixU();
         Eigen::Matrix3f v = svd_solver.matrixV();
@@ -173,6 +169,7 @@ void VolumeARAPModel::set_query_point(const Eigen::VectorXf& x) {
         rotation(tet) = rot;
         rotation_y(tet) = y;
 
+        // check that df = r * y and that r is a rotation :
         assert((rot * rot.transpose() - Eigen::Matrix3f::Identity()).norm() < 1.0e-3f);
         assert((rot * y - df).norm() < 1.0e-3f);
     }
